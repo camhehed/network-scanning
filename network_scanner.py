@@ -726,13 +726,31 @@ class NetworkScanner:
         # Determine port list based on mode
         if self.custom_ports:
             # Parse custom port range
-            if '-' in self.custom_ports:
-                start, end = map(int, self.custom_ports.split('-'))
-                ports_to_scan = list(range(start, end + 1))
-            elif ',' in self.custom_ports:
-                ports_to_scan = [int(p.strip()) for p in self.custom_ports.split(',')]
-            else:
-                ports_to_scan = [int(self.custom_ports)]
+            try:
+                if '-' in self.custom_ports:
+                    parts = self.custom_ports.split('-')
+                    if len(parts) != 2:
+                        raise ValueError("Invalid port range format")
+                    start, end = int(parts[0]), int(parts[1])
+                    if start < 1 or end > 65535 or start > end:
+                        raise ValueError("Port numbers must be between 1-65535 and start <= end")
+                    ports_to_scan = list(range(start, end + 1))
+                elif ',' in self.custom_ports:
+                    ports_to_scan = []
+                    for p in self.custom_ports.split(','):
+                        port_num = int(p.strip())
+                        if port_num < 1 or port_num > 65535:
+                            raise ValueError(f"Port number {port_num} out of valid range (1-65535)")
+                        ports_to_scan.append(port_num)
+                else:
+                    port_num = int(self.custom_ports)
+                    if port_num < 1 or port_num > 65535:
+                        raise ValueError(f"Port number {port_num} out of valid range (1-65535)")
+                    ports_to_scan = [port_num]
+            except ValueError as e:
+                self.print_warning(f"Invalid port specification: {e}")
+                self.print_warning("Using default ports instead")
+                ports_to_scan = [20, 21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 3306, 3389, 5432, 6379, 8080, 27017]
         elif self.full_mode:
             # Full mode: scan all common ports (1-65535 would be too slow, so use extended list)
             ports_to_scan = list(range(1, 1001)) + [1433, 1521, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443, 9090, 27017]
@@ -774,8 +792,9 @@ class NetworkScanner:
                 pass
             return None, None
         
-        # Scan ports with threading
-        with ThreadPoolExecutor(max_workers=50) as executor:
+        # Scan ports with threading (reduced workers for less aggressive scanning)
+        max_workers = 10 if self.quick_mode else 20
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {executor.submit(scan_port, port): port for port in ports_to_scan}
             for future in as_completed(futures):
                 port, banner = future.result()
