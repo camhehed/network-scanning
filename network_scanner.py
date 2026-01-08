@@ -25,7 +25,8 @@ class NetworkScanner:
             result = subprocess.run(
                 ['sudo', '-n', 'true'],
                 capture_output=True,
-                timeout=5
+                timeout=2,
+                stdin=subprocess.DEVNULL
             )
             self.has_sudo = (result.returncode == 0)
         except:
@@ -33,19 +34,32 @@ class NetworkScanner:
             
         if not self.has_sudo:
             try:
-                subprocess.run(
-                    ['sudo', '-v'],
-                    capture_output=True,
-                    timeout=30
-                )
-                result = subprocess.run(
-                    ['sudo', '-n', 'true'],
-                    capture_output=True,
-                    timeout=5
-                )
-                self.has_sudo = (result.returncode == 0)
+                if sys.stdin.isatty():
+                    subprocess.run(
+                        ['sudo', '-v'],
+                        timeout=5,
+                        stdin=sys.stdin
+                    )
+                    result = subprocess.run(
+                        ['sudo', '-n', 'true'],
+                        capture_output=True,
+                        timeout=2,
+                        stdin=subprocess.DEVNULL
+                    )
+                    self.has_sudo = (result.returncode == 0)
             except:
                 self.has_sudo = False
+    
+    def command_exists(self, command):
+        try:
+            subprocess.run(
+                ['which', command],
+                capture_output=True,
+                timeout=2
+            )
+            return True
+        except:
+            return False
     
     def log_to_file(self, filename, content):
         filepath = self.output_dir / f"{self.timestamp}_{filename}"
@@ -91,13 +105,15 @@ class NetworkScanner:
         output = self.run_command(['arp', '-a'])
         self.log_to_file("network_scan.txt", output)
         
-        if self.has_sudo:
+        if self.has_sudo and self.command_exists('nmap'):
             nmap_output = self.run_command(
                 ['nmap', '-sn', network_range],
                 use_sudo=True
             )
             self.log_to_file("network_scan.txt", "\n=== Nmap Host Discovery ===")
             self.log_to_file("network_scan.txt", nmap_output)
+        elif not self.command_exists('nmap'):
+            self.log_to_file("network_scan.txt", "\n=== Nmap not available ===")
     
     def scan_ports(self, target_ip):
         self.log_to_file("port_scan.txt", f"=== Port Scan for {target_ip} ===")
@@ -115,18 +131,22 @@ class NetworkScanner:
             except:
                 pass
         
-        if self.has_sudo:
+        if self.has_sudo and self.command_exists('nmap'):
             nmap_output = self.run_command(
                 ['nmap', '-sV', '-p', '1-1000', target_ip],
                 use_sudo=True
             )
             self.log_to_file("port_scan.txt", f"\n=== Nmap Service Detection {target_ip} ===")
             self.log_to_file("port_scan.txt", nmap_output)
+        elif not self.command_exists('nmap'):
+            self.log_to_file("port_scan.txt", "\n=== Nmap not available ===")
     
     def detect_os(self, target_ip):
         self.log_to_file("os_detection.txt", f"=== OS Detection for {target_ip} ===")
         
-        if self.has_sudo:
+        if not self.command_exists('nmap'):
+            self.log_to_file("os_detection.txt", "OS detection requires nmap (not available)")
+        elif self.has_sudo:
             nmap_output = self.run_command(
                 ['nmap', '-O', target_ip],
                 use_sudo=True
@@ -138,21 +158,31 @@ class NetworkScanner:
     def check_latency(self, target_ip):
         self.log_to_file("latency.txt", f"=== Latency check for {target_ip} ===")
         
-        output = self.run_command(['ping', '-c', '4', target_ip])
+        output = self.run_command(['ping', '-c', '2', '-W', '2', target_ip])
         self.log_to_file("latency.txt", output)
     
     def traceroute(self, target_ip):
         self.log_to_file("traceroute.txt", f"=== Traceroute to {target_ip} ===")
         
-        cmd = ['traceroute', target_ip] if os.name != 'nt' else ['tracert', target_ip]
-        output = self.run_command(cmd)
-        self.log_to_file("traceroute.txt", output)
+        if self.command_exists('traceroute'):
+            cmd = ['traceroute', target_ip]
+            output = self.run_command(cmd)
+            self.log_to_file("traceroute.txt", output)
+        elif self.command_exists('tracert'):
+            cmd = ['tracert', target_ip]
+            output = self.run_command(cmd)
+            self.log_to_file("traceroute.txt", output)
+        else:
+            self.log_to_file("traceroute.txt", "Traceroute command not available")
     
     def whois_lookup(self, target_ip):
         self.log_to_file("whois.txt", f"=== WHOIS lookup for {target_ip} ===")
         
-        output = self.run_command(['whois', target_ip])
-        self.log_to_file("whois.txt", output)
+        if self.command_exists('whois'):
+            output = self.run_command(['whois', target_ip])
+            self.log_to_file("whois.txt", output)
+        else:
+            self.log_to_file("whois.txt", "WHOIS command not available")
     
     def collect_login_sessions(self):
         self.log_to_file("login_sessions.txt", "=== Current Login Sessions ===")
@@ -183,9 +213,12 @@ class NetworkScanner:
         self.log_to_file("active_users.txt", "\n=== Who is logged in ===")
         self.log_to_file("active_users.txt", who_output)
         
-        finger_output = self.run_command(['finger'])
-        self.log_to_file("active_users.txt", "\n=== Finger output ===")
-        self.log_to_file("active_users.txt", finger_output)
+        if self.command_exists('finger'):
+            finger_output = self.run_command(['finger'])
+            self.log_to_file("active_users.txt", "\n=== Finger output ===")
+            self.log_to_file("active_users.txt", finger_output)
+        else:
+            self.log_to_file("active_users.txt", "\n=== Finger not available ===")
     
     def collect_auth_logs(self):
         self.log_to_file("auth_logs.txt", "=== Authentication Logs ===")
@@ -206,12 +239,13 @@ class NetworkScanner:
                     self.log_to_file("auth_logs.txt", f"\n=== {log_path} (last 100 lines) ===")
                     self.log_to_file("auth_logs.txt", tail_output)
             
-            journalctl_output = self.run_command(
-                ['journalctl', '-u', 'ssh', '-n', '100', '--no-pager'],
-                use_sudo=True
-            )
-            self.log_to_file("auth_logs.txt", "\n=== SSH Authentication Logs (journalctl) ===")
-            self.log_to_file("auth_logs.txt", journalctl_output)
+            if self.command_exists('journalctl'):
+                journalctl_output = self.run_command(
+                    ['journalctl', '-u', 'ssh', '-n', '100', '--no-pager'],
+                    use_sudo=True
+                )
+                self.log_to_file("auth_logs.txt", "\n=== SSH Authentication Logs (journalctl) ===")
+                self.log_to_file("auth_logs.txt", journalctl_output)
         else:
             self.log_to_file("auth_logs.txt", "Authentication log access requires sudo privileges (not available)")
     
@@ -232,10 +266,13 @@ class NetworkScanner:
     def collect_login_activity(self):
         self.log_to_file("login_activity.txt", "=== Login Activity Analysis ===")
         
-        lastlog_output = self.run_command(['lastlog'])
-        self.log_to_file("login_activity.txt", lastlog_output)
+        if self.command_exists('lastlog'):
+            lastlog_output = self.run_command(['lastlog'])
+            self.log_to_file("login_activity.txt", lastlog_output)
+        else:
+            self.log_to_file("login_activity.txt", "lastlog command not available")
         
-        if self.has_sudo:
+        if self.has_sudo and self.command_exists('utmpdump'):
             utmpdump_output = self.run_command(
                 ['utmpdump', '/var/log/wtmp'],
                 use_sudo=True
@@ -270,12 +307,12 @@ class NetworkScanner:
         network = ipaddress.IPv4Network(network_range)
         
         scanned_ips = []
-        for ip in list(network.hosts())[:10]:
+        for ip in list(network.hosts())[:5]:
             ip_str = str(ip)
             if ip_str != local_ip:
                 scanned_ips.append(ip_str)
         
-        for ip in scanned_ips:
+        for ip in scanned_ips[:3]:
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(0.3)
