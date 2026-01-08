@@ -6,11 +6,7 @@ import subprocess
 import socket
 import datetime
 import ipaddress
-import threading
 from pathlib import Path
-import json
-import time
-import re
 
 class NetworkScanner:
     def __init__(self):
@@ -52,12 +48,12 @@ class NetworkScanner:
     
     def command_exists(self, command):
         try:
-            subprocess.run(
+            result = subprocess.run(
                 ['which', command],
                 capture_output=True,
                 timeout=2
             )
-            return True
+            return result.returncode == 0
         except:
             return False
     
@@ -319,7 +315,7 @@ class NetworkScanner:
                 result = sock.connect_ex((ip, 80))
                 sock.close()
                 
-                if result == 0 or True:
+                if result == 0:
                     self.check_latency(ip)
             except:
                 pass
