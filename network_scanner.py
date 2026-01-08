@@ -4,10 +4,8 @@ import os
 import sys
 import time
 import socket
-import subprocess
 import platform
 from datetime import datetime
-from collections import defaultdict
 
 try:
     import netifaces
@@ -35,7 +33,11 @@ class NetworkScanner:
             os.makedirs(self.log_dir)
         
         log_filename = os.path.join(self.log_dir, f"network_scan_{self.timestamp}.log")
-        self.log_file = open(log_filename, 'w')
+        try:
+            self.log_file = open(log_filename, 'w')
+        except Exception as e:
+            print(f"Error creating log file: {e}")
+            sys.exit(1)
         
     def log(self, message, print_to_console=True):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -370,7 +372,26 @@ class NetworkScanner:
                 for hop in traceroute_hops[:5]:
                     self.log(f"  {hop}")
             
-            if ip not in ['192.168', '10.', '172.']:
+            is_private = (ip.startswith('192.168.') or 
+                         ip.startswith('10.') or 
+                         ip.startswith('172.16.') or 
+                         ip.startswith('172.17.') or 
+                         ip.startswith('172.18.') or 
+                         ip.startswith('172.19.') or 
+                         ip.startswith('172.20.') or 
+                         ip.startswith('172.21.') or 
+                         ip.startswith('172.22.') or 
+                         ip.startswith('172.23.') or 
+                         ip.startswith('172.24.') or 
+                         ip.startswith('172.25.') or 
+                         ip.startswith('172.26.') or 
+                         ip.startswith('172.27.') or 
+                         ip.startswith('172.28.') or 
+                         ip.startswith('172.29.') or 
+                         ip.startswith('172.30.') or 
+                         ip.startswith('172.31.'))
+            
+            if not is_private:
                 self.log("Getting WHOIS information...")
                 whois_info = self.get_whois_info(ip)
                 device['whois'] = whois_info
@@ -433,7 +454,16 @@ class NetworkScanner:
 
 
 def main():
-    if os.geteuid() != 0:
+    try:
+        is_root = os.geteuid() == 0
+    except AttributeError:
+        import ctypes
+        try:
+            is_root = ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except:
+            is_root = False
+    
+    if not is_root:
         print("Warning: This script requires root/administrator privileges for full functionality.")
         print("Please run with sudo: sudo python3 network_scanner.py")
         print("\nContinuing with limited functionality...")
